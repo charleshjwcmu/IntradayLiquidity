@@ -1,0 +1,383 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jun 12 09:52:51 2018
+
+@author: e620927
+"""
+
+PATH_DB = "Z:/FTDRDataBase/"
+#PATH_DB = "//mfmaog02/ERMShared/Treasury Risk/Liquidity Risk/LCR - 5G Mapping/5G Data"
+PRODUCTION_ENVRIONMENT = True
+################# Global Parameters  #################
+if PRODUCTION_ENVRIONMENT:
+    days_need_update = 10
+else:
+    days_need_update = 30
+#    days_need_update = 273
+
+import os
+import pandas as pd
+import datetime
+import time
+import imp
+import glob
+import sys
+sys.path.insert(0, "Z:/Charles/PyLibrary")
+import Library_ReadData
+imp.reload(Library_ReadData)
+from Library_ReadData import read_database, delete_database
+
+UPDATE = True
+#UPDATE = False
+
+def update_db_txt_DM_IDLM_ALL_TRANSACTION_STEP2(table_name,raw_directory,out_directory,date_list=None):
+#    date_list=["20171108"]
+    if date_list == None:
+        base = datetime.datetime.today()
+        date_list = [(base - datetime.timedelta(days=x)).strftime("%Y%m%d") for x in range(0, days_need_update)]
+
+    if not os.path.exists(out_directory):
+        os.makedirs(out_directory)
+    
+    for date in date_list:
+    #    date = date_list[0]
+        file_name_source = raw_directory+"/"+table_name+"_"+date+".txt"
+        
+        if os.path.exists(file_name_source):
+            print(table_name+"/"+"Source File Found: "+file_name_source)
+            start_time = time.time()
+            
+            data_chunks = pd.read_table(file_name_source,chunksize =10**5)
+            existing_date_list = set()
+            for i, chunk in enumerate(data_chunks):
+                chunk['ASOF'] = [datetime.datetime.strptime(x,"%m/%d/%Y 12:00:00 AM") for x in chunk['ASOF']]
+                dates = chunk['ASOF'].drop_duplicates()
+                dates = sorted(dates)
+#                if i == 0:
+#                    if len(dates) > 1:
+#                        for chunkdate in dates[:-1]:
+#            #                chunkdate = dates[0]
+#                            print("Process Date " + chunkdate.strftime("%Y%m%d"))
+#                            file_name_output = raw_directory+"/"+table_name+"_"+chunkdate.strftime("%Y%m%d")+".xlsx"
+#                            if not os.path.exists(file_name_output):
+#                                chunk_data = chunk[chunk['ASOF']==chunkdate]
+#                            else:
+#                                print("Excel Already Existed")
+#                            chunk_data.to_excel(file_name_output)
+#
+#                            file_name_output = out_directory+"/"+table_name+"_"+chunkdate.strftime("%Y%m%d")+".hdf"
+#                            if not os.path.exists(file_name_output):
+#                                chunk_data.to_hdf(file_name_output,"w",table=True)
+#                            else:
+#                                print("HDF Already Existed")
+#                        chunkdate = dates.pop(-1)
+#                        chunk_saved = chunk[chunk['ASOF']==chunkdate]
+#                    else:
+##                        chunkdate = dates.pop(-1)
+##                        chunk_saved = chunk[chunk['ASOF']==chunkdate]
+#                        print("Error: only one date is selected in the chunk")
+                for chunkdate in dates:
+    #                chunkdate = dates[0]
+                    print("Process Date " + chunkdate.strftime("%Y%m%d"))
+                    file_name_output = raw_directory+"/"+table_name+"_"+chunkdate.strftime("%Y%m%d")+".xlsx"
+                    file_name_output_hdf = out_directory+"/"+table_name+"_"+chunkdate.strftime("%Y%m%d")+".hdf"
+                    
+                    if os.path.exists(file_name_output) and (not chunkdate in existing_date_list):
+                        print("Excel Already Existed - No Excel Created for date/" + chunkdate.strftime("%Y%m%d"))
+                    elif os.path.exists(file_name_output) and (chunkdate in existing_date_list):
+                        print("Excel Already Existed - Just append more data for date/" + chunkdate.strftime("%Y%m%d"))
+                        chunk_data_existed = pd.ExcelFile(file_name_output).parse('Sheet1')
+                        print("  Existing Excel Shape: " + str(chunk_data_existed.shape[0]) + " / " + str(chunk_data_existed.shape[1]))
+
+                        chunk_data = chunk[chunk['ASOF']==chunkdate]
+                        chunk_data = chunk_data_existed.append(chunk_data)
+                        print("  New Excel Shape: " + str(chunk_data.shape[0]) + " / " + str(chunk_data.shape[1]))
+                        
+                        delete_database(file_name_output)
+                        delete_database(file_name_output_hdf)
+                        
+                        chunk_data.to_excel(file_name_output)
+                        chunk_data.to_hdf(file_name_output_hdf,"w",table=True)
+                        
+                    elif not os.path.exists(file_name_output) and (not chunkdate in existing_date_list):
+                        print("New Excel Created for date/" + chunkdate.strftime("%Y%m%d"))
+                        chunk_data = chunk[chunk['ASOF']==chunkdate]
+                        print("  Excel Shape: " + str(chunk_data.shape[0]) + " / " + str(chunk_data.shape[1]))
+
+                        delete_database(file_name_output)
+                        delete_database(file_name_output_hdf)
+                        
+                        chunk_data.to_excel(file_name_output)
+                        chunk_data.to_hdf(file_name_output_hdf,"w",table=True)
+                        existing_date_list.update([chunkdate])
+                    elif not os.path.exists(file_name_output) and (chunkdate in existing_date_list):
+                        print("Algorithmic Error")
+                        print(chunkdate)
+                        print("==")
+                        print(existing_date_list)
+            print(table_name+"/"+"Convert data using " + str(round(time.time()-start_time,0)) + " seconds")
+            
+        elif not os.path.exists(file_name_source):
+            print(table_name+"/"+date + ": Source File Not Found")
+
+if False:
+    table_name = "DM_IDLM_ALL_TRANSACTION_STEP2"
+    raw_directory = PATH_DB+table_name+"/RawData"
+    out_directory = PATH_DB+table_name+"/HdfData"
+    update_db_txt_DM_IDLM_ALL_TRANSACTION_STEP2(table_name,raw_directory,out_directory,date_list=["20170810"])
+
+def update_db_txt_DM_RPT_IDLM_A1_TRANSACTION_SUMMARY_DETAIL_HIST(table_name,raw_directory,out_directory,date_list=None):
+#    date_list=["20171108"]
+    if date_list == None:
+        print("Need to input dates")
+        return()
+
+    file_directory = "Z:/GTRM_Special_Projects/Intraday Liquidity Modeling/Data/International Extracts"
+
+    if not os.path.exists(out_directory):
+        os.makedirs(out_directory)
+    if not os.path.exists(raw_directory):
+        os.makedirs(raw_directory)
+    
+    for date in date_list:
+    #    date = date_list[0]
+        file_name_source = file_directory+"/"+date+"_"+table_name+" 1"+".txt"
+        
+        if os.path.exists(file_name_source):
+            print(table_name+"/"+"Source File Found: "+file_name_source)
+            start_time = time.time()
+            
+#            data_chunks = pd.read_table(file_name_source,chunksize =10**5)
+            data_raw = pd.read_table(file_name_source)
+#            data_raw.shape
+            unique_dates = data_raw['ASOF'].drop_duplicates()
+            for day in unique_dates:
+#                date = unique_dates[0]
+                output_date = datetime.datetime.strptime(day,"%m/%d/%Y 12:00:00 AM")
+                file_name_output = raw_directory+"/"+table_name+"_"+output_date.strftime("%Y%m%d")+".xlsx"
+                file_name_output_hdf = out_directory+"/"+table_name+"_"+output_date.strftime("%Y%m%d")+".hdf"
+                
+                if not os.path.exists(file_name_output):
+                    data_raw[data_raw['ASOF'] == day].to_excel(file_name_output)
+                else:
+                    print("excel exist already: " + day)
+                    
+                if not os.path.exists(file_name_output_hdf):
+                    data_raw[data_raw['ASOF'] == day].to_hdf(file_name_output_hdf,"w",table=True)
+                else:
+                    print("hdf exist already: " + day)
+
+            print(table_name+"/"+"Convert data using " + str(round(time.time()-start_time,0)) + " seconds")
+            
+        elif not os.path.exists(file_name_source):
+            print(table_name+"/"+date + ": Source File Not Found")
+
+def UPDATE_DB_DM_RPT_IDLM_A1_TRANSACTION_SUMMARY_DETAIL_HIST(date_list=None):
+    table_name = "DM_RPT_IDLM_A1_TRANSACTION_SUMMARY_DETAIL_HIST"
+    raw_directory = PATH_DB+table_name+"/RawData"
+    out_directory = PATH_DB+table_name+"/HdfData"
+    if date_list == None:
+        print("No date is input to update table " + table_name)
+        return()
+        
+    if date_list.__class__ == str:
+        date_list = [date_list]
+#    ["201601",
+#    date_list = ["201602","201603","201604","201605","201606","201607","201608","201609","201610","201611","201612",
+#     "201701","201702","201703","201704","201705","201706","201707","201708","201709","201710","201711","201712",
+#     "201801","201802","201803","201804","201805"]
+#    ,"201606","201607","201608","201609","201610","201611","201612",]
+    update_db_txt_DM_RPT_IDLM_A1_TRANSACTION_SUMMARY_DETAIL_HIST(table_name,raw_directory,out_directory,date_list)
+
+
+def update_db_txt_BCBS_248_Data_Extract_A1_Report(table_name,raw_directory,out_directory):
+#    date_list=["20171108"]
+
+    file_directory = "Z:/GTRM_Special_Projects/Intraday Liquidity Modeling/Data/USD Daily Extracts"
+
+    if not os.path.exists(out_directory):
+        os.makedirs(out_directory)
+    if not os.path.exists(raw_directory):
+        os.makedirs(raw_directory)
+    
+    update_start = (datetime.datetime.today() - datetime.timedelta(days=10))
+#    update_start = datetime.datetime.strptime("2017-01-03",'%Y-%m-%d')
+    update_end = datetime.datetime.today()
+    number_of_days = (update_end-update_start).days
+    
+    for days_range in range(number_of_days):
+#        days_range = 61
+        date = (update_end - datetime.timedelta(days=days_range)).strftime("%Y%m%d")
+        file_name_output = raw_directory+"/"+table_name+"_"+date+".xlsx"
+        file_name_output_hdf = out_directory+"/"+table_name+"_"+date+".hdf"
+        if os.path.exists(file_name_output) and os.path.exists(file_name_output_hdf):
+            print("Already exisits/skip " + date)
+            continue
+        
+        start_time = time.time()
+        file_name_generic = date+"_"+table_name+"*"
+        file_name = glob.glob(file_directory+"/"+file_name_generic)
+        
+        if len(file_name) != 1:
+            print(len(file_name))
+            print("file cannot only be one: " + date)
+            continue
+            
+        if not os.path.isfile(file_name[0]):
+            print("file is not a file: " + date)
+            print(file_name[0])
+            continue
+#        import numpy as np
+#        data_raw = pd.read_csv(file_name[0],dtype={'TRANSACTION_DATE_TIME':str,'SOURCEDATAMART':str,'FED_CHIPS_BT':str,\
+#               'INCOMING_OUTGOING_BT':str,'SYSTEM_REFERENCE_NUMBER':str,'TRANSACTION_AMOUNT':str,\
+#               'TRANSACTION_TYPE':str,'NET_TOTAL_AT_TRANSCATION_TIME':str,'RUNNING_TOTAL':str,\
+#               'LPNCP_RECORD_FLAG':str,'LNNCP_RECORD_FLAG':str,'DDA_ACCOUNT_NUMBER':str,'FUND':str,\
+#               'CUSTOMER_MATERIAL_ENTITY':str,'CLEARING_MATERIAL_ENTITY':str,'PLACE_OF_SETTLEMENT':str})
+        
+        data_raw = pd.read_csv(file_name[0],dtype=str)
+        
+        if not os.path.exists(file_name_output):
+            data_raw.to_excel(file_name_output)
+        else:
+            print("excel exist already: " + date)
+            
+        if not os.path.exists(file_name_output_hdf):
+            data_raw.to_hdf(file_name_output_hdf,"w",table=True)
+        else:
+            print("hdf exist already: " + date)
+
+        print(table_name+"/"+"Convert data using " + str(round(time.time()-start_time,0)) + " seconds")
+
+def UPDATE_BCBS_248_Data_Extract_A1_Report():
+    table_name = "BCBS_248_Data_Extract_A1_Report"
+    raw_directory = PATH_DB+table_name+"/RawData"
+    out_directory = PATH_DB+table_name+"/HdfData"
+    update_db_txt_BCBS_248_Data_Extract_A1_Report(table_name,raw_directory,out_directory)
+
+#def update_db_excel(table_name,out_directory,date_list=None):
+##    date_list=["20170930"]
+#    if date_list == None:
+#        base = datetime.datetime.today()
+#        date_list = [base - datetime.timedelta(days=x) for x in range(0, days_need_update)]
+#
+#    if not os.path.exists(out_directory):
+#        os.makedirs(out_directory)
+#
+#    for date in date_list:
+#    #    date = date_list[3]
+#        if date.year == 2018:
+#            file_dir = "//mfmaog02/ERMShared/Treasury Risk/Liquidity Risk/LCR - 5G Mapping/5G Data/"+date.strftime("%m-%Y")
+#        else:
+#            file_dir = "//mfmaog02/ERMShared/Treasury Risk/Liquidity Risk/LCR - 5G Mapping/5G Data/Archive_data/"+date.strftime("%Y")+"/"+date.strftime("%m-%Y")
+#        file_name_source = file_dir + "/" + table_name + " " + date.strftime("%Y-%m-%d") + ".xlsx"
+#        file_name_source_alt = file_dir + "/" + table_name + " " + date.strftime("%Y-%m-%#d") + ".xlsx"
+#
+##        if os.path.exists(file_name_source):
+##            print("good:"+date.strftime("%Y%m%d"))
+##        elif os.path.exists(file_name_source_alt):
+##            print("good_alt:"+date.strftime("%Y%m%d"))
+##        else:
+##            print(" bad:"+date.strftime("%Y%m%d"))
+#
+#        file_name_output = out_directory+"/"+table_name+"_"+date.strftime("%Y%m%d")+".hdf"
+#        
+#        if (os.path.exists(file_name_source) or os.path.exists(file_name_source_alt))  and (not os.path.exists(file_name_output)):
+#            print(table_name+"/"+"New Source File Found: "+file_name_source)
+#            start_time = time.time()
+#            
+#            if os.path.exists(file_name_source):
+#                data = pd.ExcelFile(file_name_source)
+#            elif os.path.exists(file_name_source_alt):
+#                data = pd.ExcelFile(file_name_source_alt)
+#
+#            data_excel = data.parse("Sheet1")
+#            print(table_name+"/"+"Read Excel data using " + str(round(time.time()-start_time,0)) + " seconds")
+##            print(data_excel["AS_OF_DATE"].unique())
+#            start_time = time.time()
+#            data_excel.to_hdf(file_name_output,"w",table=True)
+#            print(table_name+"/"+"Convert HDF data using " + str(round(time.time()-start_time,0)) + " seconds")
+#        elif not os.path.exists(file_name_source):
+#            print(table_name+"/"+date.strftime("%Y%m%d") + ": Source File Not Found")
+#        elif os.path.exists(file_name_output):
+#            print(table_name+"/"+date.strftime("%Y%m%d") + ": Data Conversion has already completed")
+#
+#def update_db():
+#    table_names = ["AssetInflows","Deposits","Derivatives","OtherInflows","OtherOutflows","SecuredInflows","SecuredOutflows","UnsecuredInflows","WholesaleOutflows"]
+#    for table_name in table_names:
+##        table_name = table_names[6]
+#        out_directory = PATH_DB+table_name
+#        if not os.path.exists(out_directory):
+#            os.makedirs(out_directory)
+#
+##        raw_directory = PATH_DB+table_name+"/RawData"
+#        out_directory = PATH_DB+table_name+"/HdfData"
+#        update_db_excel(table_name,out_directory)
+#
+#def clean_up(date_list = None):
+#    if date_list is None:
+#        print("No date list is provided.")
+#        return()
+#        
+#    if date_list.__class__ == str:
+#        file_path_to_delete = [date_list]
+#    elif date_list.__class__ == list:
+#        if date_list[0].__class__ == datetime.datetime:
+#            date_list = [x.strftime("%Y%m%d") for x in date_list]
+#    
+#    table_names = ["AssetInflows","Deposits","Derivatives","OtherInflows","OtherOutflows","SecuredInflows","SecuredOutflows","UnsecuredInflows","WholesaleOutflows"]
+#    for table_name in table_names:
+##        table_name = table_names[6]
+#        file_path_to_delete = [PATH_DB+table_name+"/HdfData/"+table_name+"_"+x+".hdf" for x in date_list]
+#        delete_database(file_path_to_delete)
+    
+## Read data
+def read_db(table_name, date_list=None):
+#    date_list = today
+#    date_list = formatDate(dates[table_name])
+    if date_list == None:
+        base = datetime.datetime.today()
+        date_list = [(base - datetime.timedelta(days=x)).strftime("%Y%m%d") for x in range(0, 10)]
+    elif date_list.__class__ is str:
+        date_list = [date_list]
+
+    if table_name in ["DM_RPT_IDLM_A1_TRANSACTION_SUMMARY_DETAIL_HIST","BCBS_248_Data_Extract_A1_Report"]:
+        out_directory = PATH_DB+table_name+"/HdfData/"
+        file_list = [out_directory + table_name + "_" + date + ".hdf" for date in date_list]
+        data_all = read_database(file_list)
+    elif table_name in ['TRANSACTION_AMOUNT_By_CLEARING_MATERIAL_ENTITY',\
+                        'TRANSACTION_AMOUNT_By_TimeBucket',\
+                        'TRANSACTION_AMOUNT_By_TimeMinute',\
+                        'TRANSACTION_AMOUNT_By_FMU',\
+                        'TRANSACTION_AMOUNT_By_SOURCEDATAMART',\
+                        'TRANSACTION_AMOUNT_By_TRANSACTION_TYPE']:
+        out_directory = PATH_DB+"INTRADAY_TABLES/RawData/"
+        file = out_directory + table_name + ".xlsx"
+        data_all = pd.ExcelFile(file).parse("Sheet1",index_col=0)
+        data_all = data_all.transpose().sort_index().transpose()
+    elif table_name in ['Stat_TRANSACTION_AMOUNT_By_TRANSACTION_TYPE',\
+                        'Stat_TRANSACTION_AMOUNT_By_FMU',\
+                        'Stat_TRANSACTION_AMOUNT_By_SOURCEDATAMART',\
+                        'Stat_TRANSACTION_AMOUNT_By_TimeBucket',\
+                        'TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_CLEARING_MATERIAL_ENTITY',\
+                        'TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_FMU',\
+                        'TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_SOURCEDATAMART',\
+                        'TRANSACTION_AMOUNT_By_SOURCEDATAMART_and_FED_CHIPS_BT',\
+                        'TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_TimeBucket']:
+        out_directory = PATH_DB+"INTRADAY_TABLES/RawData/"
+        file = out_directory + table_name + ".xlsx"
+        data_all = pd.ExcelFile(file).parse("Sheet1",index_col=[1,0])
+        data_all = data_all.transpose().sort_index().transpose()
+    elif table_name in ['Stat_TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_FMU',\
+                        'Stat_TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_CLEARING_MATERIAL_ENTITY',\
+                        'Stat_TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_SOURCEDATAMART',\
+                        'Stat_TRANSACTION_AMOUNT_By_TRANSACTION_TYPE_and_TimeBucket']:
+        out_directory = PATH_DB+"INTRADAY_TABLES/RawData/"
+        file = out_directory + table_name + ".xlsx"
+        data_all = pd.ExcelFile(file).parse("Sheet1",index_col=[2,1,0])
+        data_all = data_all.transpose().sort_index().transpose()
+    else:
+        print("Cannot find the database. Check table name " + table_name)
+        return()
+    
+    return(data_all)
+
